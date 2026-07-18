@@ -2,11 +2,23 @@
 
 from .adversarial import Counterexample, FuzzReport, ScenarioFuzzer
 from .core import Action, AgentUnderTest, Observation, Scenario, Step, Trace, rollout
+from .judge import (
+    AnthropicJudge,
+    Judge,
+    Judgment,
+    KeywordJudge,
+    PredicateJudge,
+    SemanticValidator,
+)
 from .metamorphic import (
     MetamorphicRelation,
     MetamorphicResult,
+    actions_related_by,
     determinism,
     irrelevant_key_invariance,
+    key_order_invariance,
+    mirror_symmetry,
+    resource_monotonicity,
     same_actions,
     translation_invariance,
 )
@@ -15,11 +27,16 @@ from .runner import ScenarioReport, SuiteReport, TestRunner
 from .tokens import (
     BudgetExceeded,
     CompressedTrace,
+    HeuristicTokenizer,
     ScenarioCost,
+    TiktokenTokenizer,
     TokenBudget,
+    Tokenizer,
     compress_trace,
     estimate_tokens,
+    get_default_tokenizer,
     select_scenarios,
+    set_default_tokenizer,
 )
 from .validators import (
     Always,
@@ -40,9 +57,15 @@ __all__ = [
     "ValidationResult", "Validator", "Violation",
     "MetamorphicRelation", "MetamorphicResult", "determinism",
     "translation_invariance", "irrelevant_key_invariance", "same_actions",
+    "mirror_symmetry", "resource_monotonicity", "key_order_invariance",
+    "actions_related_by",
     "ScenarioFuzzer", "FuzzReport", "Counterexample",
     "TokenBudget", "BudgetExceeded", "CompressedTrace", "ScenarioCost",
     "compress_trace", "estimate_tokens", "select_scenarios",
+    "Tokenizer", "HeuristicTokenizer", "TiktokenTokenizer",
+    "get_default_tokenizer", "set_default_tokenizer",
+    "Judge", "Judgment", "PredicateJudge", "KeywordJudge", "AnthropicJudge",
+    "SemanticValidator",
     "TestRunner", "ScenarioReport", "SuiteReport",
     "to_markdown", "to_json",
 ]

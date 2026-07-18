@@ -11,21 +11,85 @@ CPU. This module keeps that spend flat:
 - ``CostAwareSelector``: greedy knapsack that orders scenarios by expected
   failures per token, so a tight budget is spent where bugs are likely.
 
-Token counts use the ~4 chars/token heuristic; swap in a real tokenizer via
-``estimate_tokens``'s ``chars_per_token`` if exactness matters.
+Token counts come from a pluggable ``Tokenizer`` backend. The default is a
+dependency-free ~4-chars/token heuristic; install ``tiktoken`` and call
+``set_default_tokenizer(TiktokenTokenizer())`` for exact BPE counts, or supply
+any object with a ``count(text) -> int`` method.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Protocol, Sequence, runtime_checkable
 
 from .core import Trace
 
 
-def estimate_tokens(text: str, chars_per_token: float = 4.0) -> int:
-    """Cheap token estimate; deliberately dependency-free."""
-    return max(1, round(len(text) / chars_per_token))
+@runtime_checkable
+class Tokenizer(Protocol):
+    """Anything that can turn text into a token count."""
+
+    def count(self, text: str) -> int: ...
+
+
+@dataclass(frozen=True)
+class HeuristicTokenizer:
+    """Dependency-free estimate: ``len(text) / chars_per_token``, min 1."""
+
+    chars_per_token: float = 4.0
+
+    def count(self, text: str) -> int:
+        return max(1, round(len(text) / self.chars_per_token))
+
+
+class TiktokenTokenizer:
+    """Exact BPE token counts via the optional ``tiktoken`` package.
+
+    Lazily imported so ATLAS stays zero-dependency unless you opt in:
+    ``pip install tiktoken`` then ``set_default_tokenizer(TiktokenTokenizer())``.
+    """
+
+    def __init__(self, encoding: str = "cl100k_base") -> None:
+        try:
+            import tiktoken
+        except ImportError as exc:  # pragma: no cover - exercised only without tiktoken
+            raise ImportError(
+                "TiktokenTokenizer requires the 'tiktoken' package; "
+                "install it with `pip install tiktoken`."
+            ) from exc
+        self.encoding = encoding
+        self._enc = tiktoken.get_encoding(encoding)
+
+    def count(self, text: str) -> int:
+        return max(1, len(self._enc.encode(text)))
+
+
+_DEFAULT_TOKENIZER: Tokenizer = HeuristicTokenizer()
+
+
+def set_default_tokenizer(tokenizer: Tokenizer) -> None:
+    """Install the tokenizer used whenever a call omits an explicit one."""
+    global _DEFAULT_TOKENIZER
+    _DEFAULT_TOKENIZER = tokenizer
+
+
+def get_default_tokenizer() -> Tokenizer:
+    return _DEFAULT_TOKENIZER
+
+
+def estimate_tokens(
+    text: str,
+    chars_per_token: float = 4.0,
+    tokenizer: Tokenizer | None = None,
+) -> int:
+    """Token count for ``text``.
+
+    With no ``tokenizer``, uses the ``chars_per_token`` heuristic (kept for
+    backward compatibility). Pass a ``Tokenizer`` to use a real backend.
+    """
+    if tokenizer is not None:
+        return tokenizer.count(text)
+    return HeuristicTokenizer(chars_per_token).count(text)
 
 
 class BudgetExceeded(RuntimeError):
@@ -78,14 +142,16 @@ def _render_full(trace: Trace) -> str:
     return "\n".join(lines)
 
 
-def compress_trace(trace: Trace) -> CompressedTrace:
+def compress_trace(trace: Trace, tokenizer: Tokenizer | None = None) -> CompressedTrace:
     """Delta + run-length encode a trace for LLM consumption.
 
     Step lines carry only the state keys that changed since the previous
     step; consecutive identical (delta, action) lines collapse into one line
     with an ``xN`` repeat count. The first step is always emitted in full so
-    the encoding is self-contained.
+    the encoding is self-contained. Token counts use ``tokenizer`` (or the
+    installed default).
     """
+    tk = tokenizer or get_default_tokenizer()
     raw = _render_full(trace)
     lines = [f"trace {trace.scenario_name} ({len(trace)} steps, delta-encoded)"]
 
@@ -130,8 +196,8 @@ def compress_trace(trace: Trace) -> CompressedTrace:
     text = "\n".join(lines)
     return CompressedTrace(
         text=text,
-        raw_tokens=estimate_tokens(raw),
-        compressed_tokens=estimate_tokens(text),
+        raw_tokens=tk.count(raw),
+        compressed_tokens=tk.count(text),
     )
 
 

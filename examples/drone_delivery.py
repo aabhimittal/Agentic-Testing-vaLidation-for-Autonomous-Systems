@@ -26,15 +26,19 @@ from atlas import (
     Action,
     Always,
     Eventually,
+    KeywordJudge,
     Never,
     Observation,
     RespondsWithin,
     SafetyEnvelope,
     Scenario,
     ScenarioFuzzer,
+    SemanticValidator,
     TestRunner,
     TokenBudget,
     determinism,
+    key_order_invariance,
+    resource_monotonicity,
     to_markdown,
     translation_invariance,
 )
@@ -118,11 +122,30 @@ def main() -> int:
         make_scenario(start=1, battery=95, goal=20),
     ]
 
+    budget = TokenBudget(limit=4000)
+
+    # An LLM-as-judge validator for a fuzzy, outcome-level property. KeywordJudge
+    # runs fully offline so the example needs no API key; swap in
+    #   AnthropicJudge(model="claude-sonnet-5")
+    # for real semantic evaluation of free-form criteria (reads ANTHROPIC_API_KEY).
+    mission_complete = SemanticValidator(
+        name="mission_complete",
+        criterion="The mission should end with the package delivered and the "
+                  "drone still operational (battery not depleted).",
+        judge=KeywordJudge(required=["delivered=True"], forbidden=["battery=0 "]),
+        budget=budget,
+    )
+
     runner = TestRunner(
         agent=agent,
-        validators=VALIDATORS,
-        relations=[determinism(), translation_invariance(("pos", "goal_pos", "pad_pos"))],
-        budget=TokenBudget(limit=4000),
+        validators=list(VALIDATORS) + [mission_complete],
+        relations=[
+            determinism(),
+            translation_invariance(("pos", "goal_pos", "pad_pos")),
+            resource_monotonicity("battery", delta=20),
+            key_order_invariance(),
+        ],
+        budget=budget,
     )
     suite = runner.run(scenarios)
     print(to_markdown(suite))

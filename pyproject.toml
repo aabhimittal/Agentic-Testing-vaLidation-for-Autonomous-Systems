@@ -20,6 +20,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+tiktoken = ["tiktoken>=0.5"]     # exact BPE token counts
+judge = ["anthropic>=0.39"]      # LLM-as-judge backend
+all = ["pytest>=7.0", "tiktoken>=0.5", "anthropic>=0.39"]
 
 [tool.setuptools]
 packages = ["atlas"]
