@@ -13,7 +13,7 @@ from typing import Sequence
 
 from .core import AgentUnderTest, Scenario, Trace, rollout
 from .metamorphic import MetamorphicRelation, MetamorphicResult
-from .tokens import TokenBudget, compress_trace
+from .tokens import TokenBudget, Tokenizer, compress_trace
 from .validators import ValidationResult, Validator
 
 
@@ -58,12 +58,13 @@ class TestRunner:
     validators: Sequence[Validator] = ()
     relations: Sequence[MetamorphicRelation] = ()
     budget: TokenBudget | None = None
+    tokenizer: Tokenizer | None = None
 
     def run(self, scenarios: Sequence[Scenario]) -> SuiteReport:
         suite = SuiteReport(token_limit=self.budget.limit if self.budget else 0)
         for scenario in scenarios:
             trace = rollout(self.agent, scenario)
-            compressed = compress_trace(trace)
+            compressed = compress_trace(trace, self.tokenizer)
 
             if self.budget is not None:
                 if not self.budget.can_afford(compressed.compressed_tokens):
@@ -89,7 +90,7 @@ class TestRunner:
         """Roll out a single scenario and validate it, bypassing the budget.
         Useful for debugging a specific failure interactively."""
         trace = rollout(self.agent, scenario)
-        compressed = compress_trace(trace)
+        compressed = compress_trace(trace, self.tokenizer)
         report = ScenarioReport(
             scenario=scenario.name,
             trace_steps=len(trace),

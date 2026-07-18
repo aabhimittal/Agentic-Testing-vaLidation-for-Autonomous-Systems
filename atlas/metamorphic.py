@@ -137,3 +137,110 @@ def irrelevant_key_invariance(key: str, value: Any = 42) -> MetamorphicRelation:
         relation=same_actions,
         description="An irrelevant state key must not alter decisions.",
     )
+
+
+ActionMap = Callable[[Action], Action]
+
+
+def actions_related_by(mapper: ActionMap) -> TraceRelation:
+    """Relation: applying ``mapper`` to every follow-up action recovers the
+    source action sequence. The building block for symmetry relations."""
+
+    def relation(source: Trace, follow_up: Trace) -> bool:
+        return [mapper(a) for a in follow_up.actions()] == source.actions()
+
+    return relation
+
+
+def mirror_symmetry(
+    coordinate_keys: tuple[str, ...], action_mirror: ActionMap
+) -> MetamorphicRelation:
+    """Reflect the world about the origin on the listed coordinate keys; every
+    decision must be the mirror image of the original run.
+
+    ``action_mirror`` maps an action to its reflection (e.g. move +1 -> move
+    -1). Catches policies that hard-code a direction instead of reasoning
+    toward the goal — a bug plain determinism can never surface.
+    """
+
+    def flip(state: State) -> State:
+        return {k: (-v if k in coordinate_keys else v) for k, v in state.items()}
+
+    def transform(s: Scenario) -> Scenario:
+        def dynamics(state: State, action: Action) -> State:
+            # State is stored in the mirrored frame; unflip, advance with the
+            # action expressed in the original frame, reflect the result back.
+            nxt = s.dynamics(flip(state), action_mirror(action))
+            return flip(nxt)
+
+        return Scenario(
+            name=f"{s.name}::mirrored",
+            initial_state=flip(s.initial_state),
+            dynamics=dynamics,
+            done=lambda st: s.done(flip(st)),
+            max_steps=s.max_steps,
+            tags=s.tags,
+        )
+
+    return MetamorphicRelation(
+        name="mirror_symmetry",
+        transform=transform,
+        relation=actions_related_by(action_mirror),
+        description="Reflecting the world must reflect every decision.",
+    )
+
+
+def resource_monotonicity(resource_key: str, delta: float = 10.0) -> MetamorphicRelation:
+    """Give the agent *more* of a resource; it must not take strictly longer to
+    reach the goal. More budget making an agent slower (or fail to finish where
+    it previously succeeded) is a robustness bug. Vacuously satisfied when the
+    original run never terminated (nothing to be monotone against).
+    """
+
+    def transform(s: Scenario) -> Scenario:
+        richer = dict(s.initial_state)
+        base = richer.get(resource_key, 0)
+        richer[resource_key] = base + delta
+        return s.with_initial_state(richer, suffix=f"more_{resource_key}")
+
+    def relation(source: Trace, follow_up: Trace) -> bool:
+        if source.truncated:
+            return True  # original never finished; monotonicity is vacuous
+        return len(follow_up) <= len(source)
+
+    return MetamorphicRelation(
+        name=f"resource_monotonicity[{resource_key}]",
+        transform=transform,
+        relation=relation,
+        description="More of a resource must not slow the agent down.",
+    )
+
+
+def key_order_invariance() -> MetamorphicRelation:
+    """Rebuild every state dict in reversed key order; decisions must not
+    change. Catches agents that accidentally depend on dict iteration order
+    (e.g. serializing state into a prompt and letting key order leak in).
+    """
+
+    def reorder(state: State) -> State:
+        return dict(reversed(list(state.items())))
+
+    def transform(s: Scenario) -> Scenario:
+        def dynamics(state: State, action: Action) -> State:
+            return reorder(s.dynamics(reorder(state), action))
+
+        return Scenario(
+            name=f"{s.name}::reordered",
+            initial_state=reorder(s.initial_state),
+            dynamics=dynamics,
+            done=s.done,
+            max_steps=s.max_steps,
+            tags=s.tags,
+        )
+
+    return MetamorphicRelation(
+        name="key_order_invariance",
+        transform=transform,
+        relation=same_actions,
+        description="State-dict key order must not affect decisions.",
+    )

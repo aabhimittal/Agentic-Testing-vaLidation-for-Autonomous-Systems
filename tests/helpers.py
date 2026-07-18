@@ -33,6 +33,38 @@ class FlakyWalker(Walker):
         return super().act(obs)
 
 
+class BiWalker:
+    """Steps one unit toward the goal in whichever direction it lies.
+    Symmetric, so it satisfies mirror_symmetry (Walker does not)."""
+
+    def reset(self) -> None:
+        pass
+
+    def act(self, obs: Observation) -> Action:
+        pos, goal = obs.state["pos"], obs.state["goal"]
+        if pos < goal:
+            return Action("move", {"dx": 1})
+        if pos > goal:
+            return Action("move", {"dx": -1})
+        return Action("stop")
+
+
+class OrderSensitiveWalker(Walker):
+    """Reads dict iteration order — a bug key_order_invariance should catch."""
+
+    def act(self, obs: Observation) -> Action:
+        if next(iter(obs.state)) != "pos":
+            return Action("stop")
+        return super().act(obs)
+
+
+def mirror_move(action: Action) -> Action:
+    """Reflect a move action about the origin; other actions are unchanged."""
+    if action.name == "move":
+        return Action("move", {"dx": -action.params["dx"]})
+    return action
+
+
 def walk_dynamics(state: dict, action: Action) -> dict:
     s = dict(state)
     if action.name in ("move", "creep"):
