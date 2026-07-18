@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atlas-agent-testing"
+version = "0.1.0"
+description = "ATLAS: Agentic Testing & vaLidation for Autonomous Systems - metamorphic, temporal, adversarial, and token-budgeted testing for agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["agents", "testing", "validation", "metamorphic", "autonomous-systems", "token-optimization"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools]
+packages = ["atlas"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
