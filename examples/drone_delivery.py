@@ -25,7 +25,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from atlas import (
     Action,
     Always,
+    Dropout,
     Eventually,
+    FaultInjector,
+    Finite,
+    GaussianNoise,
     KeywordJudge,
     Never,
     Observation,
@@ -37,6 +41,7 @@ from atlas import (
     TestRunner,
     TokenBudget,
     determinism,
+    evaluate_stochastic,
     key_order_invariance,
     resource_monotonicity,
     to_markdown,
@@ -111,6 +116,7 @@ VALIDATORS = [
         window=10,
     ),
     Eventually("package_delivered", lambda s: s["delivered"]),
+    Finite("state_finite"),  # NaN/inf from a bad sensor is an explicit failure
 ]
 
 
@@ -164,7 +170,28 @@ def main() -> int:
     else:
         print(f"Fuzzer: no counterexample in {fuzz.iterations} iterations (seed={fuzz.seed})")
 
-    return 0 if suite.passed else 1
+    # Fault tolerance under statistical evaluation: a single clean run says
+    # nothing about a fleet flying with noisy battery sensors and a lossy
+    # command link. Inject both, deterministically per seed, and require the
+    # nominal mission to still succeed with 95% confidence across 40 seeds.
+    def faulty_drone(seed):
+        return FaultInjector(
+            sensor_faults=[GaussianNoise("battery", sigma=3.0)],
+            actuator_faults=[Dropout(0.15)],
+            seed=seed,
+        ).wrap(DeliveryDrone())
+
+    robust = evaluate_stochastic(
+        agent_factory=faulty_drone,
+        scenario=make_scenario(start=0, battery=60),
+        validators=VALIDATORS,
+        trials=40,
+        required=0.90,
+        confidence=0.95,
+    )
+    print(f"Fault-tolerance sweep (noisy battery + 15% command dropout): {robust.summary()}")
+
+    return 0 if suite.passed and robust.passed else 1
 
 
 if __name__ == "__main__":

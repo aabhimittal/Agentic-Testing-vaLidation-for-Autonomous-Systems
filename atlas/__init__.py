@@ -2,6 +2,17 @@
 
 from .adversarial import Counterexample, FuzzReport, ScenarioFuzzer
 from .core import Action, AgentUnderTest, Observation, Scenario, Step, Trace, rollout
+from .faults import (
+    Bias,
+    Delay,
+    DropSensor,
+    Dropout,
+    FaultInjector,
+    GaussianNoise,
+    Saturate,
+    StuckActuator,
+    StuckSensor,
+)
 from .judge import (
     AnthropicJudge,
     Judge,
@@ -24,6 +35,12 @@ from .metamorphic import (
 )
 from .report import to_json, to_markdown
 from .runner import ScenarioReport, SuiteReport, TestRunner
+from .statistics import (
+    StochasticResult,
+    evaluate_stochastic,
+    wilson_lower_bound,
+    z_for,
+)
 from .tokens import (
     BudgetExceeded,
     CompressedTrace,
@@ -41,6 +58,7 @@ from .tokens import (
 from .validators import (
     Always,
     Eventually,
+    Finite,
     Never,
     RespondsWithin,
     SafetyEnvelope,
@@ -53,8 +71,11 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Action", "AgentUnderTest", "Observation", "Scenario", "Step", "Trace", "rollout",
-    "Always", "Never", "Eventually", "RespondsWithin", "SafetyEnvelope",
+    "Always", "Never", "Eventually", "RespondsWithin", "SafetyEnvelope", "Finite",
     "ValidationResult", "Validator", "Violation",
+    "FaultInjector", "StuckSensor", "GaussianNoise", "Bias", "DropSensor",
+    "Dropout", "Delay", "StuckActuator", "Saturate",
+    "evaluate_stochastic", "StochasticResult", "wilson_lower_bound", "z_for",
     "MetamorphicRelation", "MetamorphicResult", "determinism",
     "translation_invariance", "irrelevant_key_invariance", "same_actions",
     "mirror_symmetry", "resource_monotonicity", "key_order_invariance",

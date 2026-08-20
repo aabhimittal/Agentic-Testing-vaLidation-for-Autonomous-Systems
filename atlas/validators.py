@@ -7,12 +7,20 @@ violation carries the timestep where it occurred so failures are debuggable.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import Callable, Protocol, runtime_checkable
+from typing import Callable, Iterable, Protocol, runtime_checkable
 
 from .core import State, Trace
 
 Predicate = Callable[[State], bool]
+
+
+def _is_finite_number(v: object) -> bool:
+    """True for a real, finite int/float (bools and non-numbers excluded)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    return math.isfinite(v)
 
 
 @dataclass(frozen=True)
@@ -142,6 +150,14 @@ class SafetyEnvelope:
                 if key not in state:
                     continue
                 v = state[key]
+                # A non-finite value (NaN/inf) makes `v < lo` and `v > hi` both
+                # False, so a naive bound check waves corruption through. In a
+                # safety envelope that is exactly the case we must flag.
+                if not _is_finite_number(v):
+                    violations.append(
+                        Violation(self.name, t, f"{key}={v} is not a finite number at step {t}")
+                    )
+                    continue
                 if lo is not None and v < lo:
                     violations.append(
                         Violation(self.name, t, f"{key}={v} below minimum {lo} at step {t}")
@@ -149,5 +165,35 @@ class SafetyEnvelope:
                 if hi is not None and v > hi:
                     violations.append(
                         Violation(self.name, t, f"{key}={v} above maximum {hi} at step {t}")
+                    )
+        return _result(self.name, violations)
+
+
+@dataclass
+class Finite:
+    """Every listed numeric key must stay a finite number in every state.
+
+    NaN/inf leaking into state — a divide-by-zero in a controller, an
+    uninitialized sensor, an overflowed integrator — is a silent failure mode:
+    ordinary comparison-based checks pass right through it. This validator makes
+    non-finite state an explicit, located failure. With no ``keys``, it checks
+    every numeric value present in each state.
+    """
+
+    name: str
+    keys: Iterable[str] | None = None
+
+    def check(self, trace: Trace) -> ValidationResult:
+        violations: list[Violation] = []
+        for t, state in enumerate(trace.states()):
+            if self.keys is None:
+                items = [(k, v) for k, v in state.items() if isinstance(v, (int, float))
+                         and not isinstance(v, bool)]
+            else:
+                items = [(k, state[k]) for k in self.keys if k in state]
+            for key, v in items:
+                if not _is_finite_number(v):
+                    violations.append(
+                        Violation(self.name, t, f"{key}={v} is non-finite at step {t}")
                     )
         return _result(self.name, violations)
