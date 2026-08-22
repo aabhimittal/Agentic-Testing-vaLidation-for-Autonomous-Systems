@@ -1,14 +1,16 @@
 # ATLAS — Agentic Testing & vaLidation for Autonomous Systems
 
 A zero-dependency Python framework for testing autonomous agents when there is
-**no oracle for the "correct" action** — combining four complementary
-approaches in one harness:
+**no oracle for the "correct" action** — combining complementary approaches in
+one harness:
 
 | Approach | Module | What it catches |
 |---|---|---|
-| Temporal-logic trace validation | `atlas.validators` | Safety invariants, forbidden states, liveness, *bounded response* (noticing a hazard but reacting too late) |
+| Temporal-logic trace validation | `atlas.validators` | Safety invariants, forbidden states, liveness, *bounded response* (noticing a hazard but reacting too late), non-finite (NaN/inf) state |
 | Metamorphic testing for agents | `atlas.metamorphic` | Non-determinism, state leaks, coordinate-frame sensitivity, hard-coded direction, resource non-monotonicity, dict-order dependence, coupling to irrelevant inputs |
 | Adversarial falsification | `atlas.adversarial` | The scenarios you *didn't* write: seeded, reproducible fuzzing of initial conditions until a validator breaks |
+| Fault injection (FMEA-style) | `atlas.faults` | Behavior under stuck/noisy/biased/dropped sensors and dropped, delayed, jammed, or saturated actuators — deterministically, so failures reproduce |
+| Statistical validation | `atlas.statistics` | Flaky policies: pass-rate across seeds with a Wilson confidence lower bound, so the gate tests the *true* success rate, not one lucky run |
 | Token-budgeted execution | `atlas.tokens` | Runaway LLM-evaluation cost: delta-compressed traces, hard token budgets, cost-aware scenario selection, pluggable tokenizer (heuristic or `tiktoken`) |
 | LLM-as-judge validation | `atlas.judge` | Fuzzy, oracle-free properties ("behaved cautiously", "recovered gracefully"): a judge scores the trace and plugs in as an ordinary validator, charging its tokens to the budget |
 
@@ -42,6 +44,25 @@ instead:
   — so fuzzy properties sit in the same suite as temporal ones. `KeywordJudge`
   / `PredicateJudge` are deterministic and offline (use them in CI);
   `AnthropicJudge` calls a real model when you install `anthropic`.
+
+**Deployment reality: faults and stochasticity.** A policy that is correct on
+clean traces can still be unsafe the first time a sensor sticks or a command is
+dropped — and a stochastic policy that passes once may fail one run in five:
+
+- **`atlas.faults`** injects FMEA-style faults between the environment and the
+  agent — `StuckSensor`, `GaussianNoise`, `Bias`, `DropSensor` on the sensing
+  side; `Dropout`, `Delay`, `StuckActuator`, `Saturate` on the actuation side.
+  `FaultInjector.wrap(agent)` returns an ordinary agent, so every validator,
+  relation, and the fuzzer all apply unchanged under fault conditions — and it
+  is seeded, so a fault-tolerance failure reproduces from `(seed, scenario)`.
+- **`atlas.statistics`** runs a scenario across many seeds and gates on the
+  **Wilson score lower bound** of the success rate, not the point estimate:
+  40/40 successes yields a 95% bound of ~0.94, not a false 1.0. It flags *flaky*
+  policies (mixed outcomes) and reports the exact failing seeds.
+- **Non-finite state is caught, not waved through.** `NaN > max` and `NaN < min`
+  are both `False`, so a naive bound check silently passes corrupt sensor data.
+  `Finite` makes NaN/inf an explicit, located failure, and `SafetyEnvelope`
+  now flags non-finite values inside its bounds.
 
 **Token optimization is a first-class concern.** Modern agent test suites route
 traces through LLM judges and summarizers, where cost scales with tokens:
@@ -120,6 +141,24 @@ mission = SemanticValidator(
 runner = TestRunner(agent=MyAgent(), validators=[mission], budget=budget)
 ```
 
+Test fault tolerance statistically — noisy sensors and a lossy command link,
+gated on a confidence bound across seeds:
+
+```python
+from atlas import FaultInjector, GaussianNoise, Dropout, evaluate_stochastic
+
+def faulty(seed):
+    return FaultInjector(
+        sensor_faults=[GaussianNoise("battery", sigma=3.0)],
+        actuator_faults=[Dropout(0.15)],
+        seed=seed,
+    ).wrap(MyAgent())
+
+result = evaluate_stochastic(faulty, scenario, runner.validators,
+                             trials=40, required=0.90, confidence=0.95)
+assert result.passed, result.summary()   # gates on the Wilson lower bound
+```
+
 `atlas.report.to_markdown(suite)` renders a PR-ready report;
 `to_json(suite)` feeds dashboards.
 
@@ -128,9 +167,11 @@ runner = TestRunner(agent=MyAgent(), validators=[mission], budget=budget)
 ```
 atlas/
   core.py         Agent protocol, Scenario, Trace, rollout
-  validators.py   Always / Never / Eventually / RespondsWithin / SafetyEnvelope
+  validators.py   Always / Never / Eventually / RespondsWithin / SafetyEnvelope / Finite
   metamorphic.py  determinism, translation/mirror/order invariance, monotonicity
   adversarial.py  ScenarioFuzzer (seeded falsification)
+  faults.py       FaultInjector + sensor/actuator fault library
+  statistics.py   evaluate_stochastic, Wilson lower bound, flakiness
   tokens.py       TokenBudget, compress_trace, select_scenarios, tokenizers
   judge.py        Judge protocol, Keyword/Predicate/Anthropic judges, SemanticValidator
   runner.py       TestRunner -> SuiteReport
